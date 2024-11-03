@@ -15,6 +15,7 @@ import shutil
 import json
 import torch
 import torch.nn as nn
+import math
 
 from models.TGAT import TGAT
 from models.MemoryModel import MemoryModel, compute_src_dst_node_time_shifts
@@ -167,9 +168,9 @@ def main():
         logger.info(f'model name: {args.model_name}, #parameters: {get_parameter_sizes(model) * 4} B, '
                     f'{get_parameter_sizes(model) * 4 / 1024} KB, {get_parameter_sizes(model) * 4 / 1024 / 1024} MB.')
         
-        # profile memory usage
-        print(f"INFO: Memory after model initialization:")
-        print(torch.cuda.memory_summary())
+        # # profile memory usage
+        # print(f"INFO: Memory after model initialization:")
+        # print(torch.cuda.memory_summary())
 
         # define optimizer
         optimizer = create_optimizer(model=model, optimizer_name=args.optimizer,
@@ -228,128 +229,140 @@ def main():
                     size=len(src_node_ids))
                 neg_src_node_ids = src_node_ids
 
-                print(f"DEBUG: Number of edges in the snapshot {snap_idx}: {len(src_node_ids)}")
+                num_edes_in_snapshot = len(src_node_ids)
+                print(f"Snapshot {snap_idx}: Number of edges: {num_edes_in_snapshot}")
 
-                # profile memory usage
-                print(f"INFO: Memory after loading snapshot {snap_idx}:")
-                print(torch.cuda.memory_summary())
+                # # profile memory usage
+                # print(f"INFO: Memory after loading snapshot {snap_idx}:")
+                # print(torch.cuda.memory_summary())
 
-                # we need to compute for positive and negative edges respectively, because the new sampling strategy (for evaluation) allows the negative source nodes to be
-                # different from the source nodes, this is different from previous works that just replace destination nodes with negative destination nodes
-                if args.model_name in ['TGAT', 'CAWN', 'TCL']:
-                    # get temporal embedding of source and destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_src_node_embeddings, batch_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids,
-                                                                          dst_node_ids=dst_node_ids,
-                                                                          node_interact_times=node_interact_times,
-                                                                          num_neighbors=args.num_neighbors)
+                # batch the edges in a snapshot
+                num_batch = math.ceil(num_edes_in_snapshot / args.batch_size)
+                for batch_idx in range(num_batch):
+                    batch_idx_start = batch_idx * args.batch_size
+                    batch_idx_end = min(num_edes_in_snapshot, batch_idx_start + args.batch_size)
 
-                    # get temporal embedding of negative source and negative destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids,
-                                                                          dst_node_ids=neg_dst_node_ids,
-                                                                          node_interact_times=node_interact_times,
-                                                                          num_neighbors=args.num_neighbors)
-                elif args.model_name in ['JODIE', 'DyRep', 'TGN']:
-                    # note that negative nodes do not change the memories while the positive nodes change the memories,
-                    # we need to first compute the embeddings of negative nodes for memory-based models
-                    # get temporal embedding of negative source and negative destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids,
-                                                                          dst_node_ids=neg_dst_node_ids,
-                                                                          node_interact_times=node_interact_times,
-                                                                          edge_ids=None,
-                                                                          edges_are_positive=False,
-                                                                          num_neighbors=args.num_neighbors)
+                    src_node_ids_batch = src_node_ids[batch_idx_start: batch_idx_end]
+                    dst_node_ids_batch = dst_node_ids[batch_idx_start: batch_idx_end]
+                    node_interact_times_batch = node_interact_times[batch_idx_start: batch_idx_end]
+                    edge_ids_batch = edge_ids[batch_idx_start: batch_idx_end]
+                    neg_dst_node_ids_batch = neg_dst_node_ids[batch_idx_start: batch_idx_end]
+                    neg_src_node_ids_batch = neg_src_node_ids[batch_idx_start: batch_idx_end]
 
-                    # get temporal embedding of source and destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_src_node_embeddings, batch_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids,
-                                                                          dst_node_ids=dst_node_ids,
-                                                                          node_interact_times=node_interact_times,
-                                                                          edge_ids=edge_ids,
-                                                                          edges_are_positive=True,
-                                                                          num_neighbors=args.num_neighbors)
-                elif args.model_name in ['GraphMixer']:
-                    # get temporal embedding of source and destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_src_node_embeddings, batch_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids,
-                                                                          dst_node_ids=dst_node_ids,
-                                                                          node_interact_times=node_interact_times,
-                                                                          num_neighbors=args.num_neighbors,
-                                                                          time_gap=args.time_gap)
+                    # we need to compute for positive and negative edges respectively, because the new sampling strategy (for evaluation) allows the negative source nodes to be
+                    # different from the source nodes, this is different from previous works that just replace destination nodes with negative destination nodes
+                    if args.model_name in ['TGAT', 'CAWN', 'TCL']:
+                        # get temporal embedding of source and destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_src_node_embeddings, batch_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids_batch,
+                                                                            dst_node_ids=dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch,
+                                                                            num_neighbors=args.num_neighbors)
 
-                    # get temporal embedding of negative source and negative destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids,
-                                                                          dst_node_ids=neg_dst_node_ids,
-                                                                          node_interact_times=node_interact_times,
-                                                                          num_neighbors=args.num_neighbors,
-                                                                          time_gap=args.time_gap)
-                elif args.model_name in ['DyGFormer']:
-                    # get temporal embedding of source and destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_src_node_embeddings, batch_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids,
-                                                                          dst_node_ids=dst_node_ids,
-                                                                          node_interact_times=node_interact_times)
+                        # get temporal embedding of negative source and negative destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids_batch,
+                                                                            dst_node_ids=neg_dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch,
+                                                                            num_neighbors=args.num_neighbors)
+                    elif args.model_name in ['JODIE', 'DyRep', 'TGN']:
+                        # note that negative nodes do not change the memories while the positive nodes change the memories,
+                        # we need to first compute the embeddings of negative nodes for memory-based models
+                        # get temporal embedding of negative source and negative destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids_batch,
+                                                                            dst_node_ids=neg_dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch,
+                                                                            edge_ids=None,
+                                                                            edges_are_positive=False,
+                                                                            num_neighbors=args.num_neighbors)
 
-                    # get temporal embedding of negative source and negative destination nodes
-                    # two Tensors, with shape (batch_size, node_feat_dim)
-                    batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
-                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids,
-                                                                          dst_node_ids=neg_dst_node_ids,
-                                                                          node_interact_times=node_interact_times)
-                else:
-                    raise ValueError(
-                        f"Wrong value for model_name {args.model_name}!")
+                        # get temporal embedding of source and destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_src_node_embeddings, batch_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids_batch,
+                                                                            dst_node_ids=dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch,
+                                                                            edge_ids=edge_ids_batch,
+                                                                            edges_are_positive=True,
+                                                                            num_neighbors=args.num_neighbors)
+                    elif args.model_name in ['GraphMixer']:
+                        # get temporal embedding of source and destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_src_node_embeddings, batch_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids_batch,
+                                                                            dst_node_ids=dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch,
+                                                                            num_neighbors=args.num_neighbors,
+                                                                            time_gap=args.time_gap)
 
-                # get positive and negative probabilities, shape (batch_size, )
-                positive_probabilities = model[1](input_1=batch_src_node_embeddings,
-                                                  input_2=batch_dst_node_embeddings).squeeze(dim=-1).sigmoid()
-                negative_probabilities = model[1](input_1=batch_neg_src_node_embeddings,
-                                                  input_2=batch_neg_dst_node_embeddings).squeeze(dim=-1).sigmoid()
-                
-                # profile memory usage
-                print(f"INFO: Memory after forward pass for snapshot {snap_idx}:")
-                print(torch.cuda.memory_summary())
+                        # get temporal embedding of negative source and negative destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids_batch,
+                                                                            dst_node_ids=neg_dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch,
+                                                                            num_neighbors=args.num_neighbors,
+                                                                            time_gap=args.time_gap)
+                    elif args.model_name in ['DyGFormer']:
+                        # get temporal embedding of source and destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_src_node_embeddings, batch_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids_batch,
+                                                                            dst_node_ids=dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch)
 
-                predicts = torch.cat(
-                    [positive_probabilities, negative_probabilities], dim=0)
-                labels = torch.cat([torch.ones_like(
-                    positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
+                        # get temporal embedding of negative source and negative destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
+                            model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=neg_src_node_ids_batch,
+                                                                            dst_node_ids=neg_dst_node_ids_batch,
+                                                                            node_interact_times=node_interact_times_batch)
+                    else:
+                        raise ValueError(
+                            f"Wrong value for model_name {args.model_name}!")
 
-                loss = loss_func(input=predicts, target=labels)
+                    # get positive and negative probabilities, shape (batch_size, )
+                    positive_probabilities = model[1](input_1=batch_src_node_embeddings,
+                                                    input_2=batch_dst_node_embeddings).squeeze(dim=-1).sigmoid()
+                    negative_probabilities = model[1](input_1=batch_neg_src_node_embeddings,
+                                                    input_2=batch_neg_dst_node_embeddings).squeeze(dim=-1).sigmoid()
+                    
+                    # # profile memory usage
+                    # print(f"INFO: Memory after forward pass for snapshot {snap_idx}:")
+                    # print(torch.cuda.memory_summary())
 
-                train_losses.append(loss.item())
+                    predicts = torch.cat(
+                        [positive_probabilities, negative_probabilities], dim=0)
+                    labels = torch.cat([torch.ones_like(
+                        positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
 
-                train_metrics.append(get_link_prediction_metrics(
-                    predicts=predicts, labels=labels))
+                    loss = loss_func(input=predicts, target=labels)
 
-                optimizer.zero_grad()
-                loss.backward()
+                    train_losses.append(loss.item())
 
-                # profile memory usage
-                print(f"INFO: Memory after bachward pass for snapshot {snap_idx}:")
-                print(torch.cuda.memory_summary())
+                    train_metrics.append(get_link_prediction_metrics(
+                        predicts=predicts, labels=labels))
 
-                optimizer.step()
+                    optimizer.zero_grad()
+                    loss.backward()
 
-                train_data_snap_tqdm.set_description(
-                    f'Epoch: {epoch + 1}, train for the {snap_idx + 1}-th batch, train loss: {loss.item()}')
+                    # # profile memory usage
+                    # print(f"INFO: Memory after bachward pass for snapshot {snap_idx}:")
+                    # print(torch.cuda.memory_summary())
 
-                if args.model_name in ['JODIE', 'DyRep', 'TGN']:
-                    # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
-                    model[0].memory_bank.detach_memory_bank()
+                    optimizer.step()
 
-                # clear cash
-                torch.cuda.empty_cache()
+                    train_data_snap_tqdm.set_description(
+                        f'Epoch: {epoch + 1}, train for the {snap_idx + 1}-th snapshot, train loss: {loss.item()}')
+
+                    if args.model_name in ['JODIE', 'DyRep', 'TGN']:
+                        # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
+                        model[0].memory_bank.detach_memory_bank()
+
 
             end_train = timeit.default_timer()
             train_time_list.append(end_train - start_train)
@@ -384,9 +397,9 @@ def main():
             if early_stop:
                 break
 
-            # profile memory usage
-            print(f"Memory summary at the end of epoch {epoch}:")
-            print(torch.cuda.memory_summary())
+            # # profile memory usage
+            # print(f"Memory summary at the end of epoch {epoch}:")
+            # print(torch.cuda.memory_summary())
 
         # load the best model
         early_stopping.load_checkpoint(model)

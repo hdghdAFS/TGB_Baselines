@@ -230,7 +230,7 @@ def main():
                 neg_src_node_ids = src_node_ids
 
                 num_edes_in_snapshot = len(src_node_ids)
-                print(f"Snapshot {snap_idx}: Number of edges: {num_edes_in_snapshot}")
+                # print(f"Snapshot {snap_idx}: Number of edges: {num_edes_in_snapshot}")
 
                 # # profile memory usage
                 # print(f"INFO: Memory after loading snapshot {snap_idx}:")
@@ -357,7 +357,7 @@ def main():
                     optimizer.step()
 
                     train_data_snap_tqdm.set_description(
-                        f'Epoch: {epoch + 1}, train for the {snap_idx + 1}-th snapshot, train loss: {loss.item()}')
+                        f'Epoch: {epoch + 1}, train for the {snap_idx + 1}-th snapshot: number of edges: {num_edes_in_snapshot}, train loss: {loss.item()}')
 
                     if args.model_name in ['JODIE', 'DyRep', 'TGN']:
                         # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time

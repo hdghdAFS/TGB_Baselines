@@ -237,6 +237,7 @@ def main():
                 # print(torch.cuda.memory_summary())
 
                 # batch the edges in a snapshot
+                predicts_snapshot, labels_snapshots = [], []
                 num_batch = math.ceil(num_edes_in_snapshot / args.batch_size)
                 for batch_idx in range(num_batch):
                     batch_idx_start = batch_idx * args.batch_size
@@ -339,29 +340,36 @@ def main():
                         [positive_probabilities, negative_probabilities], dim=0)
                     labels = torch.cat([torch.ones_like(
                         positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
+                    
+                    predicts_snapshot.append(predicts)
+                    labels_snapshots.append(labels)
 
-                    loss = loss_func(input=predicts, target=labels)
+                # per snapshot
+                predicts_snapshot = torch.cat(predicts_snapshot, dim=0)
+                labels_snapshots = torch.cat(labels_snapshots, dim=0)
 
-                    train_losses.append(loss.item())
+                loss = loss_func(input=predicts_snapshot, target=labels_snapshots)
 
-                    train_metrics.append(get_link_prediction_metrics(
-                        predicts=predicts, labels=labels))
+                train_losses.append(loss.item())
 
-                    optimizer.zero_grad()
-                    loss.backward()
+                train_metrics.append(get_link_prediction_metrics(
+                    predicts=predicts_snapshot, labels=labels_snapshots))
 
-                    # # profile memory usage
-                    # print(f"INFO: Memory after bachward pass for snapshot {snap_idx}:")
-                    # print(torch.cuda.memory_summary())
+                optimizer.zero_grad()
+                loss.backward()
 
-                    optimizer.step()
+                # # profile memory usage
+                # print(f"INFO: Memory after bachward pass for snapshot {snap_idx}:")
+                # print(torch.cuda.memory_summary())
 
-                    train_data_snap_tqdm.set_description(
-                        f'Epoch: {epoch + 1}, train for the {snap_idx + 1}-th snapshot: number of edges: {num_edes_in_snapshot}, train loss: {loss.item()}')
+                optimizer.step()
 
-                    if args.model_name in ['JODIE', 'DyRep', 'TGN']:
-                        # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
-                        model[0].memory_bank.detach_memory_bank()
+                train_data_snap_tqdm.set_description(
+                    f'Epoch: {epoch + 1}, train for the {snap_idx + 1}-th snapshot: number of edges: {num_edes_in_snapshot}, train loss: {loss.item()}')
+
+                if args.model_name in ['JODIE', 'DyRep', 'TGN']:
+                    # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
+                    model[0].memory_bank.detach_memory_bank()
 
 
             end_train = timeit.default_timer()

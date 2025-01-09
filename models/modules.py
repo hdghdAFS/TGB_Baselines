@@ -217,6 +217,7 @@ class TransformerEncoder(nn.Module):
         """
         super(TransformerEncoder, self).__init__()
         # use the MultiheadAttention implemented by PyTorch
+        print(f"DEBUG: attention_dim: {attention_dim}, num_heads: {num_heads}")
         self.multi_head_attention = nn.MultiheadAttention(embed_dim=attention_dim, num_heads=num_heads, dropout=dropout)
 
         self.dropout = nn.Dropout(dropout)

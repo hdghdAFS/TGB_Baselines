@@ -14,13 +14,13 @@ def get_link_prediction_args(is_evaluation: bool = False):
         'DyGLib: Interface for the link prediction task')
     parser.add_argument('--dataset_name', type=str, help='dataset to be used', default='wikipedia',
                         choices=['wikipedia', 'reddit', 'mooc', 'lastfm', 'enron', 'SocialEvo', 'social_evo',
-                                 'uci', 'Flights', 'CanParl', 'canparl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', 'contacts',
-                                 'amazonreview', 'stablecoin', 'opensky', 'redditcomments',
-                                 'tgbl-wiki', 'tgbl-review', 'tgbl-subreddit', 'tgbl-lastfm'])
+                                'uci', 'Flights', 'CanParl', 'canparl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', 'contacts',
+                                'amazonreview', 'stablecoin', 'opensky', 'redditcomments',
+                                'tgbl-wiki', 'tgbl-review', 'tgbl-subreddit', 'tgbl-lastfm'])
     parser.add_argument('--batch_size', type=int,
                         default=200, help='batch size')
     parser.add_argument('--model_name', type=str, default='DyGFormer', help='name of the model, note that EdgeBank is only applicable for evaluation',
-                        choices=['JODIE', 'DyRep', 'TGAT', 'TGN', 'CAWN', 'EdgeBank', 'TCL', 'GraphMixer', 'DyGFormer'])
+                        choices=['JODIE', 'DyRep', 'TGAT', 'TGN', 'CAWN', 'EdgeBank', 'TCL', 'GraphMixer', 'DyGFormer','DyGMamba'])
     parser.add_argument('--gpu', type=int, default=0, help='ID of gpu to use')
     parser.add_argument('--num_neighbors', type=int, default=10,  # default=20
                         help='number of neighbors to sample for each node')
@@ -56,6 +56,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
                         default=0.0001, help='learning rate')
     parser.add_argument('--dropout', type=float,
                         default=0.1, help='dropout rate')
+    parser.add_argument('--gamma', type=float, default=0.5, help='gamma')
     # original value = 100, --> TGB:50
     parser.add_argument('--num_epochs', type=int,
                         default=25, help='number of epochs')
@@ -71,6 +72,8 @@ def get_link_prediction_args(is_evaluation: bool = False):
                         default=0.15, help='ratio of test set')
     parser.add_argument('--num_runs', type=int,
                         default=5, help='number of runs')
+    parser.add_argument('--max_interaction_times', type=int, default=10,
+                        help='max interactions for src and dst to consider')
     parser.add_argument('--test_interval_epochs', type=int,
                         default=10, help='how many epochs to perform testing once')
     parser.add_argument('--negative_sample_strategy', type=str, default='random', choices=['random', 'historical', 'inductive'],

@@ -62,7 +62,15 @@ def query_pred_edge_batch(model_name: str, model: nn.Module,
             model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids,
                                                               dst_node_ids=dst_node_ids,
                                                               node_interact_times=node_interact_times)
+    elif model_name in ['DyGMamba']:
+                    # get temporal embedding of source , destination nodes and time difference
+                    # three Tensors, with shape (batch_size, node_feat_dim)
 
+        batch_src_node_embeddings, batch_dst_node_embeddings, batch_time_diff_emb = \
+                        model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=src_node_ids,
+                                                                          dst_node_ids=dst_node_ids,
+                                                                          node_interact_times=node_interact_times)
+        return batch_src_node_embeddings, batch_dst_node_embeddings,batch_time_diff_emb
     else:
         raise ValueError(f"Wrong value for model_name {model_name}!")
         batch_src_node_embeddings, batch_dst_node_embeddings = None, None
@@ -91,7 +99,7 @@ def eval_LPP_TGB(model_name: str, model: nn.Module, neighbor_sampler: NeighborSa
     """
     perf_list = []
 
-    if model_name in ['DyRep', 'TGAT', 'TGN', 'CAWN', 'TCL', 'GraphMixer', 'DyGFormer']:
+    if model_name in ['DyRep', 'TGAT', 'TGN', 'CAWN', 'TCL', 'GraphMixer', 'DyGFormer','DyGMamba']:
         # evaluation phase use all the graph information
         model[0].set_neighbor_sampler(neighbor_sampler)
 
@@ -120,26 +128,46 @@ def eval_LPP_TGB(model_name: str, model: nn.Module, neighbor_sampler: NeighborSa
                 batch_neg_dst_node_ids = np.array(neg_batch)
                 batch_neg_node_interact_times = np.array(
                     [batch_node_interact_times[idx] for _ in range(len(neg_batch))])
+                if model_name in ['DyGMamba']:
+                    # negative edges
+                    batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings,batch_neg_time_diff_emb = \
+                        query_pred_edge_batch(model_name=model_name, model=model,
+                                            src_node_ids=batch_neg_src_node_ids, dst_node_ids=batch_neg_dst_node_ids,
+                                            node_interact_times=batch_neg_node_interact_times, edge_ids=None,
+                                            edges_are_positive=False, num_neighbors=num_neighbors, time_gap=time_gap)
 
-                # negative edges
-                batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
-                    query_pred_edge_batch(model_name=model_name, model=model,
-                                          src_node_ids=batch_neg_src_node_ids, dst_node_ids=batch_neg_dst_node_ids,
-                                          node_interact_times=batch_neg_node_interact_times, edge_ids=None,
-                                          edges_are_positive=False, num_neighbors=num_neighbors, time_gap=time_gap)
+                    # one positive edge
+                    batch_pos_src_node_embeddings, batch_pos_dst_node_embeddings,batch_pos_time_diff_emb = \
+                        query_pred_edge_batch(model_name=model_name, model=model,
+                                            src_node_ids=np.array([batch_src_node_ids[idx]]), dst_node_ids=np.array([batch_dst_node_ids[idx]]),
+                                            node_interact_times=np.array([batch_node_interact_times[idx]]), edge_ids=np.array([batch_edge_ids[idx]]),
+                                            edges_are_positive=True, num_neighbors=num_neighbors, time_gap=time_gap)
 
-                # one positive edge
-                batch_pos_src_node_embeddings, batch_pos_dst_node_embeddings = \
-                    query_pred_edge_batch(model_name=model_name, model=model,
-                                          src_node_ids=np.array([batch_src_node_ids[idx]]), dst_node_ids=np.array([batch_dst_node_ids[idx]]),
-                                          node_interact_times=np.array([batch_node_interact_times[idx]]), edge_ids=np.array([batch_edge_ids[idx]]),
-                                          edges_are_positive=True, num_neighbors=num_neighbors, time_gap=time_gap)
+                    # get positive and negative probabilities
+                    positive_probabilities = model[1](input_1=batch_pos_src_node_embeddings,
+                                                    input_2=batch_pos_dst_node_embeddings, input_3=batch_pos_time_diff_emb).squeeze(dim=-1).sigmoid()
+                    negative_probabilities = model[1](input_1=batch_neg_src_node_embeddings,
+                                                    input_2=batch_neg_dst_node_embeddings, input_3=batch_neg_time_diff_emb).squeeze(dim=-1).sigmoid()                    
+                else:
+                    # negative edges
+                    batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
+                        query_pred_edge_batch(model_name=model_name, model=model,
+                                            src_node_ids=batch_neg_src_node_ids, dst_node_ids=batch_neg_dst_node_ids,
+                                            node_interact_times=batch_neg_node_interact_times, edge_ids=None,
+                                            edges_are_positive=False, num_neighbors=num_neighbors, time_gap=time_gap)
 
-                # get positive and negative probabilities
-                positive_probabilities = model[1](input_1=batch_pos_src_node_embeddings,
-                                                  input_2=batch_pos_dst_node_embeddings).squeeze(dim=-1).sigmoid()
-                negative_probabilities = model[1](input_1=batch_neg_src_node_embeddings,
-                                                  input_2=batch_neg_dst_node_embeddings).squeeze(dim=-1).sigmoid()
+                    # one positive edge
+                    batch_pos_src_node_embeddings, batch_pos_dst_node_embeddings = \
+                        query_pred_edge_batch(model_name=model_name, model=model,
+                                            src_node_ids=np.array([batch_src_node_ids[idx]]), dst_node_ids=np.array([batch_dst_node_ids[idx]]),
+                                            node_interact_times=np.array([batch_node_interact_times[idx]]), edge_ids=np.array([batch_edge_ids[idx]]),
+                                            edges_are_positive=True, num_neighbors=num_neighbors, time_gap=time_gap)
+
+                    # get positive and negative probabilities
+                    positive_probabilities = model[1](input_1=batch_pos_src_node_embeddings,
+                                                    input_2=batch_pos_dst_node_embeddings).squeeze(dim=-1).sigmoid()
+                    negative_probabilities = model[1](input_1=batch_neg_src_node_embeddings,
+                                                    input_2=batch_neg_dst_node_embeddings).squeeze(dim=-1).sigmoid()
 
                 # compute MRR
                 input_dict = {

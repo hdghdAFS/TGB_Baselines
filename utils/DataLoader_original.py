@@ -156,7 +156,7 @@ def get_link_prediction_tgb_data(dataset_name: str):
 
     MAX_FEAT_DIM = 172
     if 'node_feat' not in data.keys():
-        node_raw_features = np.zeros((num_nodes + 1, 1))
+        node_raw_features = np.zeros((num_nodes, 1))
     else:
         node_raw_features = data['node_feat'].astype(np.float64)
         # deal with node features whose shape has only one dimension
@@ -166,6 +166,7 @@ def get_link_prediction_tgb_data(dataset_name: str):
     # add feature of padded node and padded edge
     node_raw_features = np.vstack([np.zeros(node_raw_features.shape[1])[
                                   np.newaxis, :], node_raw_features])
+
     edge_raw_features = np.vstack([np.zeros(edge_raw_features.shape[1])[
                                   np.newaxis, :], edge_raw_features])
 
